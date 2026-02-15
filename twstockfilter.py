@@ -2,10 +2,10 @@ import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 import re
-from datetime import datetime
+from datetime import datetime, timedelta  # 加入 timedelta 來處理時差
 import urllib3
 
-# [cite_start]禁用 SSL 安全警告 [cite: 1]
+# 禁用 SSL 安全警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 st.set_page_config(page_title="台股 RS 篩選器", page_icon="📈")
@@ -21,7 +21,6 @@ def get_stock_mapping():
     headers = {'User-Agent': 'Mozilla/5.0'}
     for market, url in urls.items():
         try:
-            # [cite_start]關鍵：verify=False 解決雲端 SSL 報錯 [cite: 1]
             resp = requests.get(url, headers=headers, timeout=10, verify=False)
             resp.encoding = 'ms950'
             soup = BeautifulSoup(resp.text, 'html.parser')
@@ -55,12 +54,10 @@ def fetch_moneydj_rs(weeks, min_rank):
 # --- 3. 介面佈局 ---
 st.title("🇹🇼 台股 RS Rank 篩選器")
 
-# 設定區
 weeks = st.slider("選擇週數", 1, 52, 1)
 min_rank = st.number_input("RS Rank 大於等於", 1, 99, 80)
 max_count = st.number_input("至多顯示幾筆", 1, 500, 200)
 
-# 重新放回 MoneyDJ 連結 (會隨參數變動)
 mdj_url = f"https://moneydj.emega.com.tw/z/zk/zkf/zkResult.asp?D=1&A=x@250,a@{weeks},b@{min_rank}&site="
 st.markdown(f"🔍 [🔗 開啟 MoneyDJ 原始網頁確認]({mdj_url})")
 
@@ -87,16 +84,21 @@ if btn:
             
             st.success(f"找到共 {len(codes)} 檔股票")
             
+            # --- 修正後的日期處理 (UTC+8) ---
+            # 獲取伺服器 UTC 時間並加上 8 小時
+            tw_time = datetime.utcnow() + timedelta(hours=8)
+            current_date = tw_time.strftime("%Y_%m_%d")
+            dynamic_filename = f"TW_{current_date}.txt"
+            
             # TradingView 區塊
-            current_date = datetime.now().strftime("%Y_%m_%d")
             csv_string = ",".join(tv_list)
             st.subheader("🔥 TradingView 匯入字串")
             st.code(csv_string)
             
             st.download_button(
-                label=f"📥 下載 TW_{current_date}.txt",
+                label=f"📥 下載 {dynamic_filename}",
                 data=csv_string,
-                file_name=f"TW_{current_date}.txt",
+                file_name=dynamic_filename,
                 mime="text/plain",
                 use_container_width=True
             )
@@ -105,4 +107,3 @@ if btn:
             st.dataframe(display_data, use_container_width=True)
         else:
             st.warning("查無符合條件之股票。")
-            st.info(f"建議點擊上方連結至 MoneyDJ 網頁確認是否有資料。")
