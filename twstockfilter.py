@@ -5,13 +5,12 @@ import re
 from datetime import datetime
 import urllib3
 
-# 禁用 SSL 安全警告訊息 (避免網頁出現一堆警告字)
+# 1. 強制禁用 SSL 警告訊息，確保網頁介面乾淨 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- 設定網頁標題 ---
 st.set_page_config(page_title="台股 RS 篩選器", page_icon="📈")
 
-# --- 1. 股票地圖獲取邏輯 (加入跳過 SSL 驗證) ---
+# 2. 加入 verify=False 解決雲端 SSL 報錯問題 
 @st.cache_data(ttl=604800)
 def get_stock_mapping():
     urls = {
@@ -22,7 +21,7 @@ def get_stock_mapping():
     headers = {'User-Agent': 'Mozilla/5.0'}
     for market, url in urls.items():
         try:
-            # 重點：加入 verify=False 跳過 SSL 檢查
+            # 關鍵修改：verify=False 
             resp = requests.get(url, headers=headers, timeout=10, verify=False)
             resp.encoding = 'ms950'
             soup = BeautifulSoup(resp.text, 'html.parser')
@@ -39,78 +38,61 @@ def get_stock_mapping():
             continue
     return mapping
 
-# --- 2. MoneyDJ API 抓取邏輯 ---
 def fetch_moneydj_rs(weeks, min_rank):
     url = f"https://moneydj.emega.com.tw/z/zk/zkf/zkResult.asp?D=1&A=x@250,a@{weeks},b@{min_rank}&site="
-    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        # MoneyDJ 有時也會有憑證問題，一併加入 verify=False
-        resp = requests.get(url, headers=headers, timeout=15, verify=False)
+        # 同樣加入 verify=False 以策安全 
+        resp = requests.get(url, timeout=15, verify=False)
         resp.encoding = 'big5'
         match = re.search(r"parent\.sStklistAll\s*=\s*'([^']+)'", resp.text)
         if match:
             raw_codes = match.group(1).encode('utf-8').decode('unicode-escape')
             return [c.strip() for c in raw_codes.split(',') if c.strip().isdigit()]
-    except Exception as e:
-        st.error(f"連線 MoneyDJ 發生錯誤: {e}")
+    except:
+        pass
     return []
 
-# --- 3. 網頁 UI 介面 ---
+# --- 介面佈局 ---
 st.title("🇹🇼 台股 RS Rank 篩選器")
-
-# 調整佈局適合手機
 weeks = st.slider("選擇週數", 1, 52, 1)
 min_rank = st.number_input("RS Rank 大於等於", 1, 99, 80)
-max_count = st.number_input("至多顯示幾筆", min_value=1, max_value=500, value=200)
+max_count = st.number_input("至多顯示幾筆", 1, 500, 200)
 
-mdj_url = f"https://moneydj.emega.com.tw/z/zk/zkf/zkResult.asp?D=1&A=x@250,a@{weeks},b@{min_rank}&site="
-st.markdown(f"🔍 [🔗 開啟 MoneyDJ 原始網頁確認]({mdj_url})")
-
-btn = st.button("🚀 執行篩選並產出清單", type="primary", use_container_width=True)
-
-st.divider()
+btn = st.button("🚀 執行篩選", type="primary", use_container_width=True)
 
 if btn:
-    with st.spinner('正在獲取最新數據...'):
+    with st.spinner('正在同步數據...'):
         mapping = get_stock_mapping()
         codes = fetch_moneydj_rs(weeks, min_rank)
         
         if codes:
             final_codes = codes[:max_count]
-            tv_format_list = []
+            tv_list = []
             display_data = []
             
             for c in final_codes:
-                # 即使 mapping 失敗 (None)，也不要讓程式當掉
-                info = mapping.get(str(c)) if mapping else None
-                
-                # 保底邏輯：找不到市場就預設 TWSE，找不到名稱就顯示代號
+                info = mapping.get(str(c))
+                # 3. 核心保底：即使 mapping 失敗，也預設顯示代號，保證 TradingView 字串產出 
                 mkt = info['prefix'] if info else "TWSE"
-                name = info['name'] if info else f"股票 {c}"
-                
-                tv_format_list.append(f"{mkt}:{c}")
+                name = info['name'] if info else "名稱待查"
+                tv_list.append(f"{mkt}:{c}")
                 display_data.append({"代號": c, "名稱": name, "市場": mkt})
             
             st.success(f"找到共 {len(codes)} 檔股票")
-
-            # 檔名日期
-            current_date = datetime.now().strftime("%Y_%m_%d")
-            dynamic_filename = f"TW_{current_date}.txt"
             
             # TradingView 區塊
-            csv_string = ",".join(tv_format_list)
+            current_date = datetime.now().strftime("%Y_%m_%d")
+            csv_string = ",".join(tv_list)
             st.subheader("🔥 TradingView 匯入字串")
-            st.code(csv_string, language="text") 
+            st.code(csv_string)
             
             st.download_button(
-                label=f"📥 下載 {dynamic_filename}",
+                label=f"📥 下載 TW_{current_date}.txt",
                 data=csv_string,
-                file_name=dynamic_filename,
+                file_name=f"TW_{current_date}.txt",
                 mime="text/plain",
                 use_container_width=True
             )
-            
-            st.subheader("📋 詳細清單")
             st.dataframe(display_data, use_container_width=True)
         else:
             st.warning("查無符合條件之股票。")
