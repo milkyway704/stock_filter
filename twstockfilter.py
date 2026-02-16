@@ -52,7 +52,7 @@ def fetch_moneydj_rs(weeks, min_rank):
     return []
 
 # --- 3. 介面佈局 ---
-st.title("🇹🇼 台股 RS Rank 篩選器")
+st.title("台股 RS Rank 篩選器")
 
 weeks = st.slider("選擇週數", 1, 52, 1)
 min_rank = st.number_input("RS Rank 大於等於", 1, 99, 80)
