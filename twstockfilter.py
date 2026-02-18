@@ -77,6 +77,76 @@ tab_us, tab_tw = st.tabs(["🇺🇸 US (美股)", "🇹🇼 TW (台股)"])
 # --- 美股分頁 ---
 with tab_us:
     st.subheader("美股 RS 篩選")
+    st.caption("偵錯模式：若定位失敗，將顯示原始抓取內容以供對齊")
+    min_rs_us = st.number_input("RS Rank 最低標", 1, 100, 90, key="us_input")
+    
+    if st.button("🚀 執行美股篩選", type="primary", use_container_width=True):
+        with st.spinner('正在讀取並分析表格結構...'):
+            gsheet_url = "https://docs.google.com/spreadsheets/d/18EWLoHkh2aiJIKQsJnjOjPo63QFxkUE2U_K8ffHCn1E/edit?usp=sharing"
+            csv_url = gsheet_url.replace('/edit?usp=sharing', '/export?format=csv')
+            
+            try:
+                # 1. 讀取原始數據
+                df_raw = pd.read_csv(csv_url, header=None)
+                
+                symbol_idx = None
+                rs_idx = None
+                data_start_row = 0
+                
+                # 2. 掃描前 15 列尋找標題列
+                for row_i in range(min(15, len(df_raw))):
+                    # 清理該列資料：轉字串、去空格
+                    row_list = [str(x).strip() for x in df_raw.iloc[row_i].tolist()]
+                    
+                    # 檢查 Symbol 是否在這一行
+                    if 'Symbol' in row_list:
+                        symbol_idx = row_list.index('Symbol')
+                        # 尋找包含 RS Rnk 的欄位 (模糊比對)
+                        for col_i, col_val in enumerate(row_list):
+                            if 'RS Rnk' in col_val:
+                                rs_idx = col_i
+                        
+                        if symbol_idx is not None and rs_idx is not None:
+                            data_start_row = row_i + 1
+                            break
+
+                # --- 核心：如果定位成功 ---
+                if symbol_idx is not None and rs_idx is not None:
+                    df_final = df_raw.iloc[data_start_row:, [symbol_idx, rs_idx]].copy()
+                    df_final.columns = ['Symbol', 'RS_Rank']
+                    
+                    df_final['RS_Rank'] = pd.to_numeric(df_final['RS_Rank'], errors='coerce')
+                    df_final['Symbol'] = df_final['Symbol'].astype(str).str.strip().str.upper()
+                    
+                    # 移除無效資料
+                    filtered_us = df_final[(df_final['Symbol'] != 'NAN') & (df_final['Symbol'] != '')].dropna()
+                    filtered_us = filtered_us[filtered_us['RS_Rank'] >= min_rs_us].sort_values(by='RS_Rank', ascending=False)
+                    
+                    if not filtered_us.empty:
+                        def add_tv_prefix(s):
+                            return f"NASDAQ:{s}" if len(s) >= 4 else f"NYSE:{s}"
+                        
+                        tv_symbols = [add_tv_prefix(s) for s in filtered_us['Symbol']]
+                        csv_string_us = ",".join(tv_symbols)
+                        
+                        st.success(f"成功定位！Symbol 索引: {symbol_idx}, RS 索引: {rs_idx}")
+                        st.code(csv_string_us)
+                        st.download_button("📥 下載匯入檔", csv_string_us, f"US_RS{min_rs_us}.txt", use_container_width=True)
+                        st.dataframe(filtered_us, use_container_width=True)
+                    else:
+                        st.warning("查無符合條件之股票。")
+
+                # --- 核心：如果定位失敗 (Debug 資訊) ---
+                else:
+                    st.error("❌ 無法自動定位欄位，請查看下方原始資料結構：")
+                    # 顯示前 5 列資料，幫助你判斷標題在哪裡
+                    st.write("前 5 列抓取內容預覽：")
+                    st.table(df_raw.head(5))
+                    st.info(f"搜尋目標：'Symbol' 與包含 'RS Rnk' 的欄位")
+                    
+            except Exception as e:
+                st.error(f"程式執行異常: {e}")
+    st.subheader("美股 RS 篩選")
     st.caption("自動對位：避開網址說明列，精確抓取 Symbol 與 RS Rnk")
     min_rs_us = st.number_input("RS Rank 最低標", 1, 100, 90, key="us_input")
     
