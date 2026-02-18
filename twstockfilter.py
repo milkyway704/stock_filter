@@ -76,6 +76,57 @@ tab_us, tab_tw = st.tabs(["🇺🇸 US (美股)", "🇹🇼 TW (台股)"])
 
 # --- 美股分頁 ---
 with tab_us:
+    st.subheader("美股 RS 篩選")
+    st.caption("自動抓取 B 欄(代號) 與 Z 欄(RS Rank)，並從第二列開始解析")
+    min_rs_us = st.number_input("RS Rank 最低標", 1, 99, 90, key="us_input")
+    
+    if st.button("🚀 執行美股篩選", type="primary", use_container_width=True):
+        with st.spinner('讀取數據中...'):
+            # 獲取 CSV 連結
+            gsheet_url = "https://docs.google.com/spreadsheets/d/18EWLoHkh2aiJIKQsJnjOjPo63QFxkUE2U_K8ffHCn1E/edit?usp=sharing"
+            csv_url = gsheet_url.replace('/edit?usp=sharing', '/export?format=csv')
+            
+            try:
+                # 讀取時不設標題 (header=None)，確保所有列都被讀入
+                df_raw = pd.read_csv(csv_url, header=None)
+                
+                # 做法：從第二列(index 1)開始抓取，並定位 B 欄(1)與 Z 欄(25)
+                # iloc[1:, [1, 25]] 表示：列從 1 往後拿，欄只拿 index 1 和 25
+                df_us = df_raw.iloc[1:, [1, 25]].copy()
+                df_us.columns = ['Symbol', 'RS_Rank']
+                
+                # 數值轉換：將 Z 欄轉為數字，非數字者變 NaN
+                df_us['RS_Rank'] = pd.to_numeric(df_us['RS_Rank'], errors='coerce')
+                
+                # 篩選：移除無效值，並過濾出符合分數的股票
+                filtered_us = df_us.dropna(subset=['Symbol', 'RS_Rank'])
+                filtered_us = filtered_us[filtered_us['RS_Rank'] >= min_rs_us].sort_values(by='RS_Rank', ascending=False)
+                
+                if not filtered_us.empty:
+                    # 清理代號格式：去空格、轉大寫
+                    symbols = filtered_us['Symbol'].astype(str).str.strip().str.upper().tolist()
+                    csv_string_us = ",".join(symbols)
+                    
+                    st.success(f"找到 {len(filtered_us)} 檔標的")
+                    
+                    st.subheader("🔥 TradingView 匯入字串")
+                    st.code(csv_string_us)
+                    
+                    st.download_button(
+                        label="📥 下載 US 清單 (.txt)",
+                        data=csv_string_us,
+                        file_name=f"US_RS{min_rs_us}_{get_tw_time().strftime('%Y%m%d')}.txt",
+                        use_container_width=True
+                    )
+                    
+                    st.subheader("📋 詳細數據")
+                    st.dataframe(filtered_us, use_container_width=True)
+                else:
+                    st.warning(f"篩選後無結果。請檢查 Z 欄是否有大於 {min_rs_us} 的數值。")
+            
+            except Exception as e:
+                st.error(f"解析失敗: {e}")
+                st.info("提示：請確認該 Google Sheet 是否為公開分享狀態。")
     st.subheader("美股 RS 篩選 (指定 Z 欄 RS / B 欄代號)")
     min_rs_us = st.number_input("RS Rank 最低標", 1, 99, 90, key="us_input")
     
