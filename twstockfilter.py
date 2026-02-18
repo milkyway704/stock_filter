@@ -76,7 +76,47 @@ tab_us, tab_tw = st.tabs(["🇺🇸 US (美股)", "🇹🇼 TW (台股)"])
 
 # --- 美股分頁 ---
 with tab_us:
-    st.subheader("美股 RS 篩選")
+    st.subheader("美股 RS 篩選 (指定 Z 欄 RS / B 欄代號)")
+    min_rs_us = st.number_input("RS Rank 最低標", 1, 99, 90, key="us_input")
+    
+    if st.button("🚀 執行美股篩選", type="primary", use_container_width=True):
+        with st.spinner('讀取數據中...'):
+            df_us = fetch_us_rs_from_gsheet()
+            if df_us is not None:
+                try:
+                    # 做法：直接使用欄位索引位置（B 欄是 index 1, Z 欄是 index 25）
+                    # 我們先取前 26 欄確保能抓到 Z
+                    df_subset = df_us.iloc[:, [1, 25]].copy()
+                    df_subset.columns = ['Symbol', 'RS_Rank']
+                    
+                    # 轉換 RS 欄位為數字，無法轉換的會變 NaN
+                    df_subset['RS_Rank'] = pd.to_numeric(df_subset['RS_Rank'], errors='coerce')
+                    
+                    # 移除代號或 RS 為空的資料，並執行篩選
+                    filtered_us = df_subset.dropna(subset=['Symbol', 'RS_Rank'])
+                    filtered_us = filtered_us[filtered_us['RS_Rank'] >= min_rs_us].sort_values(by='RS_Rank', ascending=False)
+                    
+                    if not filtered_us.empty:
+                        tv_list_us = filtered_us['Symbol'].astype(str).str.strip().tolist()
+                        csv_us = ",".join(tv_list_us)
+                        
+                        st.success(f"找到 {len(filtered_us)} 檔標的")
+                        st.subheader("🔥 TradingView 匯入字串")
+                        st.code(csv_us)
+                        
+                        st.download_button(
+                            "📥 下載 US 清單", 
+                            csv_us, 
+                            f"US_{get_tw_time().strftime('%Y_%m_%d')}.txt", 
+                            use_container_width=True
+                        )
+                        st.dataframe(filtered_us, use_container_width=True)
+                    else:
+                        st.warning(f"在 Z 欄中找不到大於等於 {min_rs_us} 的數據。")
+                        
+                except Exception as e:
+                    st.error(f"解析欄位時出錯: {e}")
+                    st.info("提示：請確認該 Google Sheet 的 B 欄與 Z 欄是否有資料。")    st.subheader("美股 RS 篩選")
     min_rs_us = st.number_input("RS Rank 最低標", 1, 99, 90, key="us_input")
     
     if st.button("🚀 執行美股篩選", type="primary", use_container_width=True):
