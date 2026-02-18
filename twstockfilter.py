@@ -86,50 +86,54 @@ with tab_us:
             csv_url = gsheet_url.replace('/edit?usp=sharing', '/export?format=csv')
             
             try:
-                # 1. 讀取數據 (header=None 確保不漏掉任何一列)
+                # 1. 讀取數據 (不設標題，確保完整抓取)
                 df_raw = pd.read_csv(csv_url, header=None)
                 
                 symbol_idx = None
                 rs_idx = None
                 data_start_row = 0
                 
-                # 2. 掃描前 10 列尋找真正的標題行
+                # 2. 掃描前 10 列尋找真正的標題行 (針對您的 CSV 結構優化)
                 for row_i in range(min(10, len(df_raw))):
-                    row_list = df_raw.iloc[row_i].astype(str).tolist()
-                    # 只要這一行有 Symbol 且有 RS Rnk 
-                    if 'Symbol' in row_list and any('RS Rnk' in str(x) for x in row_list):
+                    # 將該列轉為字串清單並去除空格
+                    row_list = [str(x).strip() for x in df_raw.iloc[row_i].tolist()]
+                    
+                    if 'Symbol' in row_list:
                         symbol_idx = row_list.index('Symbol')
-                        # 尋找包含 'RS Rnk' 的欄位索引
+                        # 尋找包含 'RS Rnk' 的欄位索引 (模糊比對，避免空格影響)
                         for col_i, col_val in enumerate(row_list):
-                            if 'RS Rnk' in str(col_val):
+                            if 'RS Rnk' in col_val:
                                 rs_idx = col_i
-                        data_start_row = row_i + 1 # 資料從標題的下一列開始
+                        data_start_row = row_i + 1 
                         break
                 
                 if symbol_idx is not None and rs_idx is not None:
-                    # 3. 提取數據
+                    # 3. 提取數據 (從標題下一列開始)
                     df_final = df_raw.iloc[data_start_row:, [symbol_idx, rs_idx]].copy()
                     df_final.columns = ['Symbol', 'RS_Rank']
                     
-                    # 轉換數值並清理
+                    # 4. 數據清洗
+                    # 確保 RS_Rank 是數字，Symbol 轉大寫並移除雜質
                     df_final['RS_Rank'] = pd.to_numeric(df_final['RS_Rank'], errors='coerce')
+                    df_final['Symbol'] = df_final['Symbol'].astype(str).str.strip().str.upper()
+                    
+                    # 移除無效代號 (例如 'NAN' 或 空字串)
+                    df_final = df_final[df_final['Symbol'] != 'NAN']
                     df_final = df_final.dropna(subset=['Symbol', 'RS_Rank'])
                     
-                    # 4. 篩選與排序
+                    # 5. 執行篩選與排序
                     filtered_us = df_final[df_final['RS_Rank'] >= min_rs_us].sort_values(by='RS_Rank', ascending=False)
                     
                     if not filtered_us.empty:
-                        # 5. 交易所前綴判斷邏輯 (TradingView 格式)
+                        # 6. 加上交易所前綴 (TradingView 格式)
                         def add_tv_prefix(s):
-                            s = str(s).strip().upper()
-                            # 簡單判斷：4碼(含)以上 NASDAQ，3碼(含)以下 NYSE
-                            # 這是美股最常見的分類方式，能匹配 95% 以上股票
+                            # 規則：3碼以下 NYSE，4碼以上 NASDAQ
                             return f"NASDAQ:{s}" if len(s) >= 4 else f"NYSE:{s}"
                         
                         tv_symbols = [add_tv_prefix(s) for s in filtered_us['Symbol']]
                         csv_string_us = ",".join(tv_symbols)
                         
-                        st.success(f"解析成功！找到 {len(filtered_us)} 檔股票")
+                        st.success(f"解析成功！找到 {len(filtered_us)} 檔標的")
                         st.subheader("🔥 TradingView 匯入字串")
                         st.code(csv_string_us)
                         
@@ -143,12 +147,10 @@ with tab_us:
                     else:
                         st.warning(f"目前清單中沒有 RS Rank >= {min_rs_us} 的股票。")
                 else:
-                    st.error("無法在表格中定位 'Symbol' 或 'RS Rnk' 欄位。")
-                    st.info(f"偵測到的第一列內容：{df_raw.iloc[0].tolist()[:5]}...")
+                    st.error("無法定位 'Symbol' 或 'RS Rnk'。請確認工作表標題名稱是否正確。")
                     
             except Exception as e:
-                st.error(f"執行出錯: {e}")
-                
+                st.error(f"執行出錯: {e}")              
 # --- 台股分頁 ---
 with tab_tw:
     st.subheader("台股 RS 篩選")
