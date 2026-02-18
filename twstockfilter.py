@@ -77,33 +77,36 @@ tab_us, tab_tw = st.tabs(["🇺🇸 US (美股)", "🇹🇼 TW (台股)"])
 # --- 美股分頁 ---
 with tab_us:
     st.subheader("美股 RS 篩選")
-    st.caption("數據定位：B 欄(代號) / Z 欄(RS Rank) | 避開前兩列公式與標題")
+    st.caption("目標：B 欄(代號) / Z 欄(RS Rank) | 數據從第三列開始解析")
     min_rs_us = st.number_input("RS Rank 最低標", 1, 100, 90, key="us_input")
     
     if st.button("🚀 執行美股篩選", type="primary", use_container_width=True):
-        with st.spinner('讀取 Google Sheet 數據中...'):
+        with st.spinner('讀取數據中...'):
             gsheet_url = "https://docs.google.com/spreadsheets/d/18EWLoHkh2aiJIKQsJnjOjPo63QFxkUE2U_K8ffHCn1E/edit?usp=sharing"
             csv_url = gsheet_url.replace('/edit?usp=sharing', '/export?format=csv')
             
             try:
-                # 1. 讀取 CSV，不設標題 (header=None)
+                # 讀取 CSV，先不設 header 
                 df_raw = pd.read_csv(csv_url, header=None)
                 
-                # 2. 定位資料：跳過前兩列 (iloc[2:])，抓取 B 欄 (index 1) 與 Z 欄 (index 25)
-                # 這樣可以直接避開第一列的 SORT 公式和第二列的標題文字
+                # 做法：
+                # 1. 強制指定 B 欄為 index 1, Z 欄為 index 25
+                # 2. iloc[2:] 跳過第一列(公式)與第二列(標題)
                 df_us = df_raw.iloc[2:, [1, 25]].copy()
                 df_us.columns = ['Symbol', 'RS_Rank']
                 
-                # 3. 處理數據：將 RS_Rank 轉為數字，並清理 Symbol 空格
+                # 數據清洗：強制轉換為數字，錯誤變 NaN，然後移除 NaN 
                 df_us['RS_Rank'] = pd.to_numeric(df_us['RS_Rank'], errors='coerce')
-                df_us['Symbol'] = df_us['Symbol'].astype(str).str.strip().str.upper()
                 
-                # 4. 篩選：移除無效值，過濾 RS 並降冪排序
+                # 移除代號為空或是 RS 為空的列
                 filtered_us = df_us.dropna(subset=['Symbol', 'RS_Rank'])
+                
+                # 執行篩選
                 filtered_us = filtered_us[filtered_us['RS_Rank'] >= min_rs_us].sort_values(by='RS_Rank', ascending=False)
                 
                 if not filtered_us.empty:
-                    symbols = filtered_us['Symbol'].tolist()
+                    # 去除代號中的空格並轉大寫
+                    symbols = filtered_us['Symbol'].astype(str).str.strip().str.upper().tolist()
                     csv_string_us = ",".join(symbols)
                     
                     st.success(f"找到 {len(filtered_us)} 檔標的")
@@ -116,13 +119,15 @@ with tab_us:
                         file_name=f"US_RS{min_rs_us}_{get_tw_time().strftime('%Y%m%d')}.txt",
                         use_container_width=True
                     )
+                    
+                    st.subheader("📋 詳細清單 (預覽)")
                     st.dataframe(filtered_us, use_container_width=True)
                 else:
-                    st.warning(f"目前 Z 欄中沒有大於等於 {min_rs_us} 的數據。")
+                    st.warning(f"在 Z 欄找不到任何大於或等於 {min_rs_us} 的數值。")
             
             except Exception as e:
-                # 修正 SyntaxError：確保錯誤處理邏輯與後續代碼有正確換行
                 st.error(f"解析失敗: {e}")
+
 # --- 台股分頁 ---
 with tab_tw:
     st.subheader("台股 RS 篩選")
