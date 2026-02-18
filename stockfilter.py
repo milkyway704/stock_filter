@@ -120,39 +120,40 @@ with tab_us:
             except Exception as e:
                 st.error(f"連線失敗: {e}")
 
-# --- 方案一：側邊欄 CANSLIM 分析 ---
+    # --- 方案一：側邊欄 CANSLIM 分析 ---
     if 'filtered_us_list' in st.session_state:
         st.divider()
-        # 增加一個預設空選項，避免程式一啟動就去抓第一檔
-        selected_stock = st.selectbox(
-            "🔍 選擇代號查看 CANSLIM 深度分析", 
-            ["請選擇..."] + st.session_state['filtered_us_list']
-        )
+        selected_stock = st.selectbox("🔍 選擇代號查看 CANSLIM 深度分析", st.session_state['filtered_us_list'])
         
-        if selected_stock != "請選擇...":
+        if selected_stock:
             with st.sidebar:
                 st.header(f"📊 {selected_stock} 分析")
-                # 顯示轉圈圈，讓使用者知道正在抓 API
-                with st.spinner(f'正在獲取 {selected_stock} 財務數據...'):
-                    data = get_canslim_info(selected_stock)
+                data = get_canslim_info(selected_stock)
+                
+                if data:
+                    st.subheader(data['name'])
+                    st.caption(f"{data['sector']} | {data['industry']}")
                     
-                    if data:
-                        st.subheader(data['name'])
-                        st.caption(f"{data['sector']} | {data['industry']}")
-                        
-                        # C 指標
-                        st.metric("C: 當季 EPS 成長率", f"{data['eps_growth']:.1f}%")
-                        
-                        # N 指標
-                        dist_from_high = ((data['hi_52w'] - data['price']) / data['hi_52w']) * 100 if data['hi_52w'] > 0 else 0
-                        st.metric("N: 距 52 週高點", f"${data['price']:.2f}", f"-{dist_from_high:.1f}%", delta_color="inverse")
-                        
-                        # S & I 指標
-                        st.write(f"**S: 流通股數 (Float):** {data['float']/1e6:.1f}M")
-                        st.write(f"**I: 法人持股比例:** {data['inst_pct']:.1f}%")
-                        st.progress(min(max(data['inst_pct']/100, 0.0), 1.0))
-                    else:
-                        st.warning("⚠️ 此代號暫時無法從 yfinance 獲取數據。")
+                    # C: Current Earnings
+                    c_color = "green" if data['eps_growth'] >= 25 else "red"
+                    st.metric("C: 當季 EPS 成長率", f"{data['eps_growth']:.1f}%", delta=f"{data['eps_growth']-25:.1f}% vs 標竿", delta_color="normal")
+                    
+                    # N: New Highs
+                    dist_from_high = ((data['hi_52w'] - data['price']) / data['hi_52w']) * 100
+                    st.metric("N: 距 52 週高點", f"{data['price']:.2f}", f"-{dist_from_high:.1f}%", delta_color="inverse")
+                    
+                    # S: Supply (Float)
+                    float_m = data['float'] / 1_000_000
+                    st.write(f"**S: 流通股數 (Float):** {float_m:.1f}M")
+                    
+                    # I: Institutional
+                    st.write(f"**I: 法人持股比例:** {data['inst_pct']:.1f}%")
+                    
+                    st.progress(min(max(data['inst_pct']/100, 0.0), 1.0), text="法人支持度")
+                    
+                    st.info("💡 提醒：若 EPS 成長 > 25% 且股價接近新高，較符合 CANSLIM 突破特徵。")
+                else:
+                    st.error("暫時無法抓取該股財務數據。")
 
 # --- 台股分頁 (保持原本 Logic) ---
 with tab_tw:
