@@ -9,13 +9,15 @@ import urllib3
 # 禁用 SSL 安全警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-st.set_page_config(page_title="股票 RS 篩選器", page_icon="📈", layout="wide")
+# 設定頁面，針對手機版建議使用寬度自動調整
+st.set_page_config(page_title="RS Rank Filter", page_icon="📈", layout="centered")
 
-# --- 通用工具：時區處理 ---
+# --- 通用工具 ---
 def get_tw_time():
+    # 伺服器通常為 UTC，台灣為 UTC+8
     return datetime.utcnow() + timedelta(hours=8)
 
-# --- 1. 股票地圖 (台股專用) ---
+# --- 1. 台股專用：股票地圖 ---
 @st.cache_data(ttl=604800)
 def get_stock_mapping():
     urls = {
@@ -38,11 +40,10 @@ def get_stock_mapping():
                 parts = text.split(' ')
                 if len(parts) >= 2 and parts[0].isdigit():
                     mapping[str(parts[0])] = {"name": parts[1], "prefix": prefix}
-        except:
-            continue
+        except: continue
     return mapping
 
-# --- 2. MoneyDJ 抓取 (台股專用) ---
+# --- 2. 台股專用：MoneyDJ 抓取 ---
 def fetch_moneydj_rs(weeks, min_rank):
     url = f"https://moneydj.emega.com.tw/z/zk/zkf/zkResult.asp?D=1&A=x@250,a@{weeks},b@{min_rank}&site="
     try:
@@ -52,91 +53,87 @@ def fetch_moneydj_rs(weeks, min_rank):
         if match:
             raw_codes = match.group(1).encode('utf-8').decode('unicode-escape')
             return [c.strip() for c in raw_codes.split(',') if c.strip().isdigit()]
-    except:
-        pass
+    except: pass
     return []
 
-# --- 3. Google Sheet 抓取 (美股專用) ---
-@st.cache_data(ttl=3600)  # 每小時更新一次
-def fetch_us_rs_from_gsheet(sheet_url):
+# --- 3. 美股專用：Google Sheet 抓取 ---
+@st.cache_data(ttl=3600)
+def fetch_us_rs_from_gsheet():
+    # 您的 Google Sheet 連結
+    gsheet_url = "https://docs.google.com/spreadsheets/d/18EWLoHkh2aiJIKQsJnjOjPo63QFxkUE2U_K8ffHCn1E/edit?usp=sharing"
+    csv_url = gsheet_url.replace('/edit?usp=sharing', '/export?format=csv')
     try:
-        # 將編輯連結轉換為 CSV 導出連結
-        csv_url = sheet_url.replace('/edit?usp=sharing', '/export?format=csv')
         df = pd.read_csv(csv_url)
-        # 假設 Google Sheet 欄位包含 'Symbol', 'Name', 'RS Rating', 'Exchange'
-        # 您需要根據該 Sheet 的實際標題修改下列欄位名稱
         return df
     except Exception as e:
-        st.error(f"讀取 Google Sheet 失敗: {e}")
+        st.error(f"美股數據讀取失敗: {e}")
         return None
 
-# --- 4. 介面佈局 ---
-st.sidebar.title("🛠️ 市場切換")
-market_choice = st.sidebar.radio("選擇市場", ["台股 (MoneyDJ)", "美股 (Google Sheet)"])
+# --- UI 介面開始 ---
+# 標題居中 (符合草圖)
+st.markdown("<h1 style='text-align: center;'>RS Rank Filter</h1>", unsafe_allow_html=True)
 
-if market_choice == "台股 (MoneyDJ)":
-    st.title("🇹🇼 台股 RS Rank 篩選器")
-    
-    weeks = st.slider("選擇週數", 1, 52, 1)
-    min_rank = st.number_input("RS Rank 大於等於", 1, 99, 80)
-    max_count = st.number_input("至多顯示幾筆", 1, 500, 200)
+# 使用 Tabs 實作 US / TW 切換 (手機版最直覺的操作)
+tab_us, tab_tw = st.tabs(["🇺🇸 US (美股)", "🇹🇼 TW (台股)"])
 
-    mdj_url = f"https://moneydj.emega.com.tw/z/zk/zkf/zkResult.asp?D=1&A=x@250,a@{weeks},b@{min_rank}&site="
-    st.markdown(f"🔍 [🔗 開啟 MoneyDJ 原始網頁確認]({mdj_url})")
-
-    if st.button("🚀 執行台股篩選", type="primary", use_container_width=True):
-        with st.spinner('正在同步數據...'):
-            mapping = get_stock_mapping()
-            codes = fetch_moneydj_rs(weeks, min_rank)
-            if codes:
-                final_codes = codes[:max_count]
-                tv_list = [f"{mapping.get(c, {'prefix':'TWSE'})['prefix']}:{c}" for c in final_codes]
-                display_data = [{"代號": c, "名稱": mapping.get(c, {'name':'名稱待查'})['name'], "市場": mapping.get(c, {'prefix':'TWSE'})['prefix']} for c in final_codes]
-                
-                # 下載與顯示邏輯 (維持原樣)
-                csv_string = ",".join(tv_list)
-                st.code(csv_string)
-                st.download_button("📥 下載台股清單", csv_string, f"TW_{get_tw_time().strftime('%Y_%m_%d')}.txt")
-                st.dataframe(display_data, use_container_width=True)
-            else:
-                st.warning("查無符合條件之股票。")
-
-else:
-    st.title("🇺🇸 美股 RS Rank 篩選器")
-    st.info("數據來源：指定的 Google Sheet 公開清單")
-
-    min_rs = st.number_input("RS Rank 最低分數", 1, 99, 90)
-    
-    gsheet_url = "https://docs.google.com/spreadsheets/d/18EWLoHkh2aiJIKQsJnjOjPo63QFxkUE2U_K8ffHCn1E/edit?usp=sharing"
+# --- 美股分頁 ---
+with tab_us:
+    st.subheader("美股 RS 篩選 (Google Sheet)")
+    min_rs_us = st.number_input("RS Rank 最低標", 1, 99, 90, key="us_input")
     
     if st.button("🚀 執行美股篩選", type="primary", use_container_width=True):
-        with st.spinner('讀取 Google Sheet 中...'):
-            df = fetch_us_rs_from_gsheet(gsheet_url)
-            if df is not None:
-                # 自動偵測可能的 RS 欄位名稱 (例如 'RS Rating', 'RS', 'RS Rank')
-                rs_col = next((c for c in df.columns if 'RS' in c.upper()), None)
-                symbol_col = next((c for c in df.columns if 'SYMBOL' in c.upper() or 'TICKER' in c.upper()), None)
+        with st.spinner('讀取數據中...'):
+            df_us = fetch_us_rs_from_gsheet()
+            if df_us is not None:
+                # 欄位偵測邏輯
+                rs_col = next((c for c in df_us.columns if 'RS' in c.upper()), None)
+                sym_col = next((c for c in df_us.columns if 'SYMBOL' in c.upper() or 'TICKER' in c.upper()), None)
                 
-                if rs_col and symbol_col:
-                    # 篩選條件
-                    filtered_df = df[df[rs_col] >= min_rs].sort_values(by=rs_col, ascending=False)
+                if rs_col and sym_col:
+                    filtered_us = df_us[df_us[rs_col] >= min_rs_us].sort_values(by=rs_col, ascending=False)
+                    tv_list_us = filtered_us[sym_col].astype(str).tolist()
+                    csv_us = ",".join(tv_list_us)
                     
-                    # 產生 TradingView 格式 (美股通常不需前綴，或視 Sheet 內容加 NASDAQ:/NYSE:)
-                    # 這裡示範直接輸出代號，TradingView 通常能自動識別美股
-                    tv_list = filtered_df[symbol_col].astype(str).tolist()
-                    csv_string = ",".join(tv_list)
-                    
-                    st.success(f"找到共 {len(filtered_df)} 檔符合條件的美股")
-                    st.subheader("🔥 TradingView 匯入字串")
-                    st.code(csv_string)
-                    
-                    st.download_button(
-                        label=f"📥 下載 US_{get_tw_time().strftime('%Y_%m_%d')}.txt",
-                        data=csv_string,
-                        file_name=f"US_{get_tw_time().strftime('%Y_%m_%d')}.txt",
-                        mime="text/plain",
-                        use_container_width=True
-                    )
-                    st.dataframe(filtered_df, use_container_width=True)
+                    st.success(f"找到 {len(filtered_us)} 檔標的")
+                    st.code(csv_us)
+                    st.download_button("📥 下載 US 清單", csv_us, f"US_{get_tw_time().strftime('%Y_%m_%d')}.txt", use_container_width=True)
+                    st.dataframe(filtered_us, use_container_width=True)
                 else:
-                    st.error(f"找不到對應的 RS 或代號欄位。目前的欄位有：{list(df.columns)}")
+                    st.error("Sheet 格式不符，找不到 RS 或 Symbol 欄位。")
+
+# --- 台股分頁 ---
+with tab_tw:
+    st.subheader("台股 RS 篩選 (MoneyDJ)")
+    # 使用 columns 讓手機版併排，減少滾動
+    col1, col2 = st.columns(2)
+    with col1:
+        weeks = st.selectbox("週數", options=[1, 2, 4, 8, 12, 24, 52], index=0)
+    with col2:
+        min_rank = st.number_input("RS Rank 下限", 1, 99, 80)
+    
+    max_count = st.slider("顯示上限", 50, 500, 200)
+
+    if st.button("🚀 執行台股篩選", type="primary", use_container_width=True):
+        with st.spinner('同步數據中...'):
+            mapping = get_stock_mapping()
+            codes = fetch_moneydj_rs(weeks, min_rank)
+            
+            if codes:
+                final_codes = codes[:max_count]
+                tv_list_tw = []
+                display_tw = []
+                
+                for c in final_codes:
+                    info = mapping.get(str(c))
+                    mkt = info['prefix'] if info else "TWSE"
+                    name = info['name'] if info else f"代號 {c}"
+                    tv_list_tw.append(f"{mkt}:{c}")
+                    display_tw.append({"代號": c, "名稱": name, "市場": mkt})
+                
+                st.success(f"找到 {len(codes)} 檔標的")
+                csv_tw = ",".join(tv_list_tw)
+                st.code(csv_tw)
+                st.download_button("📥 下載 TW 清單", csv_tw, f"TW_{get_tw_time().strftime('%Y_%m_%d')}.txt", use_container_width=True)
+                st.dataframe(display_tw, use_container_width=True)
+            else:
+                st.warning("查無符合條件之股票。")
