@@ -76,7 +76,36 @@ def get_canslim_info(symbol):
         return None
 
 # --- UI 介面開始 ---
-st.markdown("<h1 style='text-align: center;'>RS Rank Filter</h1>", unsafe_allow_html=True)
+# --- 1. 隱藏標題連結圖示並設定標題為超連結 ---
+st.markdown(
+    """
+    <style>
+    /* 隱藏 Streamlit 自動生成的標題連結圖示 */
+    .stMarkdown h1 a, .stMarkdown h2 a, .stMarkdown h3 a {
+        display: none !important;
+    }
+    
+    /* 設定大標題樣式，讓它看起來不像傳統連結 */
+    .custom-title {
+        text-align: center;
+        text-decoration: none;
+        color: inherit;
+        font-weight: bold;
+        display: block;
+        margin: 25px 0px;
+    }
+    .custom-title:hover {
+        color: #FF4B4B; /* 滑鼠移上去稍微變色（Streamlit紅），這行可刪除 */
+        text-decoration: none;
+    }
+    </style>
+    
+    <a href="你的網址" target="_blank" class="custom-title">
+        <h1>RS Rank Filter</h1>
+    </a>
+    """, 
+    unsafe_allow_html=True
+)
 tab_us, tab_tw = st.tabs(["US (美股)", "TW (台股)"])
 
 # --- 美股分頁 ---
@@ -161,7 +190,7 @@ with tab_us:
                         st.warning("⚠️ 無法獲取該股財務數據，可能是 yfinance 暫時限制存取。")
         else:
             st.info("💡 請先在「篩選清單」分頁執行篩選，產生的名單將會顯示在這裡。")
-            
+
 # --- 台股分頁 (保持原本 Logic) ---
 with tab_tw:
     st.subheader("台股 RS 篩選")
