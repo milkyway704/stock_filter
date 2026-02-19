@@ -57,17 +57,24 @@ def get_canslim_info(ticker):
     stock = yf.Ticker(ticker)
     info = stock.info
     
-    # 獲取年度財務數據 (用於 A 指標)
+    # --- 修正後的 A 指標邏輯 ---
+    annual_eps_growth = 0
     try:
-        earnings = stock.earnings
-        # 這裡會得到過去四年的數據，我們計算成長率
-        if not earnings.empty and len(earnings) >= 2:
-            annual_eps_growth = ((earnings['Earnings'].iloc[-1] / earnings['Earnings'].iloc[-2]) - 1) * 100
-        else:
-            annual_eps_growth = 0
+        # 優先從 info 抓取年度盈餘成長率
+        annual_eps_growth = info.get('earningsQuarterlyGrowth', 0) * 100 
+        
+        # 如果還是 0，嘗試從 financials 抓取年度淨利並手動計算
+        if annual_eps_growth == 0:
+            financials = stock.financials
+            if not financials.empty and "Net Income" in financials.index:
+                # 抓取最近兩年的淨利 (Net Income)
+                net_income = financials.loc["Net Income"]
+                if len(net_income) >= 2:
+                    # 計算成長率：(今年 / 去年) - 1
+                    annual_eps_growth = ((net_income.iloc[0] / net_income.iloc[1]) - 1) * 100
     except:
         annual_eps_growth = 0
-
+    # -----------------------
     # L 指標：直接取 session_state 裡的 RS_Rank (稍後在主程式對應)
     # M 指標：我們可以抓標普 500 (SPY) 的近期表現作為參考
     try:
