@@ -54,82 +54,66 @@ def fetch_moneydj_rs(weeks, min_rank):
 
 # --- 2. CANSLIM 分析函數 (新功能) ---
 def get_canslim_info(ticker):
-    """
-    獲取美股 CANSLIM 核心財務與市場數據
-    C: 當季 EPS 成長
-    A: 近四季 EPS 成長 (TTM)
-    N: 價格與 52 週高點
-    S: 流通股數
-    I: 法人持股
-    M: 市場大盤趨勢
-    """
     try:
         stock = yf.Ticker(ticker)
-        # 為了效能，我們先抓取一次 info，後面再抓取報表
         info = stock.info
         
-        # --- [C & A] 獲利指標：從季報表抓取數據計算 ---
         eps_growth = 0
         ttm_eps_growth = 0
         
+        # 抓取每季損益表
         q_financials = stock.quarterly_financials
+        
         if not q_financials.empty and "Net Income" in q_financials.index:
             net_income = q_financials.loc["Net Income"]
             
-            # C: 當季成長 (最新 1 季 vs 去年同期第 5 季)
+            # --- C 指標：當季 YoY 成長 ---
             if len(net_income) >= 5:
                 current_q = net_income.iloc[0]
                 last_year_q = net_income.iloc[4]
-                if last_year_q > 0:
+                # 確保數據不是 NaN 且分母不為 0
+                if pd.notna(current_q) and pd.notna(last_year_q) and last_year_q != 0:
                     eps_growth = ((current_q / last_year_q) - 1) * 100
             
-            # A: 近四季成長 (最新 4 季總和 vs 去年同期 4 季總和)
+            # --- A 指標：近四季 TTM 成長 ---
             if len(net_income) >= 8:
                 current_4q_sum = net_income.iloc[0:4].sum()
                 last_year_4q_sum = net_income.iloc[4:8].sum()
-                if last_year_4q_sum > 0:
+                # 確保總和不是 NaN 且分母不為 0
+                if pd.notna(current_4q_sum) and pd.notna(last_year_4q_sum) and last_year_4q_sum != 0:
                     ttm_eps_growth = ((current_4q_sum / last_year_4q_sum) - 1) * 100
-        
-        # 如果報表抓不到，退而求其次使用 info 裡的預設欄位
+
+        # 如果透過報表算出來是 0，嘗試抓 info 裡的預設值當備案
         if eps_growth == 0:
             eps_growth = info.get('earningsQuarterlyGrowth', 0) * 100
 
-        # --- [M] 市場大盤趨勢 (以標普 500 ETF 為準) ---
-        market_trend = "判斷中"
+        # --- M 指標：大盤趨勢 (SPY) ---
+        market_trend = "數據獲取中"
         try:
             spy = yf.Ticker("SPY")
-            # 抓取近 20 日價格判斷短期趨勢是否在季線或月線之上
             spy_hist = spy.history(period="20d")
             if len(spy_hist) >= 2:
-                # 簡單邏輯：最新價高於前一日且高於 20 日均線
                 current_spy = spy_hist['Close'].iloc[-1]
-                prev_spy = spy_hist['Close'].iloc[-2]
                 ma20_spy = spy_hist['Close'].mean()
-                if current_spy > ma20_spy:
-                    market_trend = "看漲 (高於月線)"
-                else:
-                    market_trend = "回檔 (低於月線)"
+                market_trend = "看漲 (高於月線)" if current_spy > ma20_spy else "回檔 (低於月線)"
         except:
-            market_trend = "數據獲取失敗"
+            market_trend = "無法取得大盤資訊"
 
-        # --- 封裝回傳數據 ---
         return {
             "name": info.get('longName', ticker),
             "price": info.get('currentPrice', 0),
-            "eps_growth": eps_growth,               # C 指標
-            "ttm_eps_growth": ttm_eps_growth,       # A 指標 (近四季)
-            "hi_52w": info.get('fiftyTwoWeekHigh', 0), # N 指標
-            "float": info.get('floatShares', 0),    # S 指標
-            "inst_pct": info.get('heldPercentInstitutions', 0) * 100, # I 指標
-            "sector": info.get('sector', 'N/A'),
-            "industry": info.get('industry', 'N/A'),
-            "market_trend": market_trend            # M 指標
+            "eps_growth": eps_growth,
+            "ttm_eps_growth": ttm_eps_growth,
+            "hi_52w": info.get('fiftyTwoWeekHigh', 0),
+            "float": info.get('floatShares', 0),
+            "inst_pct": info.get('heldPercentInstitutions', 0) * 100,
+            "market_trend": market_trend
         }
 
     except Exception as e:
-        print(f"Error fetching data for {ticker}: {e}")
+        print(f"Error for {ticker}: {e}")
         return None
-    
+        
 # --- UI 介面開始 ---
 # --- 強制標題樣式：原分頁跳轉（類 F5 效果） ---
 st.markdown(
