@@ -170,7 +170,7 @@ with tab_us:
     st.subheader("美股 RS 篩選與 CANSLIM 分析")
     
     # 建立子分頁
-    tab_us_list, tab_us_analysis = st.tabs(["📋 篩選清單", "🔍 CANSLIM 深度分析"])
+    tab_us_list, tab_us_analysis = st.tabs(["📋 篩選清單", "🔍 CANSLIM"])
     
     with tab_us_list:
         min_rs_us = st.number_input("RS Rank 最低標", 1, 100, 70, key="us_input")
